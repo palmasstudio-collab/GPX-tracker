@@ -2,21 +2,16 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>Generatore Itinerari GPX</title>
+    <title>Cammino Santa Barbara - Planner ARST</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; margin: 0; height: 100vh; color: #333; }
+        body { font-family: 'Segoe UI', sans-serif; display: flex; margin: 0; height: 100vh; background: #f4f4f4; }
         #map { flex: 3; height: 100%; }
-        #sidebar { flex: 1; padding: 20px; background: #f8f9fa; overflow-y: auto; box-shadow: -2px 0 5px rgba(0,0,0,0.1); z-index: 1000; display: flex; flex-direction: column; }
-        h2 { margin-top: 0; font-size: 1.5rem; }
-        p { font-size: 0.9rem; color: #666; }
-        #lista-tappe { flex-grow: 1; overflow-y: auto; margin-bottom: 20px; }
-        .tappa-item { padding: 12px; border: 1px solid #ddd; margin-bottom: 8px; cursor: pointer; background: white; border-radius: 6px; font-size: 0.9rem; transition: all 0.2s;}
-        .tappa-item:hover { border-color: #007bff; }
-        .selezionata { background-color: #e8f4f8; border-color: #007bff; border-left: 5px solid #007bff; font-weight: bold;}
-        button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 8px; transition: background 0.3s;}
-        button:hover { background: #218838; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
+        #sidebar { flex: 1; padding: 20px; background: #fff; overflow-y: auto; box-shadow: -2px 0 10px rgba(0,0,0,0.1); }
+        .tappa-item { padding: 12px; border: 1px solid #ddd; margin-bottom: 8px; cursor: pointer; border-radius: 6px; font-size: 0.9rem; }
+        .selezionata { background-color: #e8f4f8; border-color: #007bff; border-left: 6px solid #007bff; font-weight: bold;}
+        button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 8px; margin-top: 10px;}
+        .info-bus { background: #fff9c4; padding: 8px; margin-top: 5px; border-radius: 4px; font-size: 0.8rem; border-left: 3px solid #fbc02d; }
     </style>
 </head>
 <body>
@@ -24,191 +19,111 @@
     <div id="map"></div>
     
     <div id="sidebar">
-        <h2>Il mio Cammino</h2>
-        <p>Seleziona le tappe nell'ordine in cui vuoi percorrerle. L'app cercherà i mezzi pubblici per colmare i vuoti.</p>
-        <div id="lista-tappe">In caricamento...</div>
-        <button id="btn-genera" onclick="generaPDF()">Genera PDF Itinerario</button>
+        <h2>Il mio Cammino 🥾</h2>
+        <p>Seleziona le tappe. Se mancano collegamenti, userò i dati dei PDF ARST caricati.</p>
+        <div id="lista-tappe">Caricamento tracce...</div>
+        <button onclick="generaPDF()">Genera PDF Itinerario</button>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDYoifuonSuHKeTx7AyBQpyen580LgPnqo"></script>
 
     <script>
-        const map = L.map('map').setView([39.2238, 8.5204], 9);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
+        // Database estratto dai PDF caricati
+        const arstDb = [
+            { id: "840", from: ["iglesias", "domusnovas"], to: ["masua"], file: "840.pdf" },
+            { id: "853", from: ["funtanamare"], to: ["iglesias"], file: "853.pdf" },
+            { id: "847", from: ["portoscuso", "nuraxi figus"], to: ["gonnesa", "iglesias"], file: "847.pdf" },
+            { id: "841", from: ["iglesias", "villacidro"], to: ["guspini"], file: "841.pdf" },
+            { id: "8005", from: ["carbonia"], to: ["iglesias"], file: "8005.pdf" },
+            { id: "855", from: ["plage mesu"], to: ["iglesias"], file: "855.pdf" },
+            { id: "856", from: ["plage mesu"], to: ["domusnovas"], file: "856.pdf" },
+            { id: "8002", from: ["iglesias", "carbonia"], to: ["decimomannu"], file: "8002.pdf" }
+        ];
+
+        const map = L.map('map').setView([39.2238, 8.5204], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         let tappeSelezionate = [];
         let datiGPX = {}; 
+        const repoUser = "palmasstudio-collab";
+        const repoName = "GPX-tracker";
 
-        const githubApiUrl = 'https://api.github.com/repos/palmasstudio-collab/GPX-tracker/contents/gpx';
-
-        fetch(githubApiUrl)
-            .then(response => response.json())
-            .then(files => {
-                const listaDiv = document.getElementById('lista-tappe');
-                listaDiv.innerHTML = ''; 
-                
-                const gpxFiles = files.filter(f => f.name.endsWith('.gpx'));
-
-                gpxFiles.forEach(file => {
-                    let div = document.createElement('div');
+        fetch(`https://api.github.com/repos/${repoUser}/${repoName}/contents/gpx`)
+            .then(r => r.json()).then(files => {
+                const list = document.getElementById('lista-tappe');
+                list.innerHTML = '';
+                files.filter(f => f.name.endsWith('.gpx')).forEach(file => {
+                    const div = document.createElement('div');
                     div.className = 'tappa-item';
-                    div.innerText = file.name.replace('.gpx', '').replace(/-/g, ' '); 
-                    
-                    div.onclick = function() { selezionaTappa(div, file.name); };
-                    listaDiv.appendChild(div);
+                    div.innerText = file.name.replace('.gpx', '').replace(/-/g, ' ');
+                    div.onclick = () => toggleTappa(div, file.name);
+                    list.appendChild(div);
 
                     new L.GPX(file.download_url, {
                         async: true,
-                        marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
                         polyline_options: { color: '#888', opacity: 0.6, weight: 3 }
-                    }).on('loaded', function(e) {
-                        const traccia = e.target;
-                        
-                        // Estrattore coordinate aggressivo a prova di crash
-                        let startPoint = { lat: 0, lng: 0 };
-                        let endPoint = { lat: 0, lng: 0 };
-                        const layers = traccia.getLayers();
-                        
-                        if (layers.length > 0 && layers[0].getLatLngs) {
-                            // flat(Infinity) distrugge qualsiasi array nidificato e ci dà una lista pulita di coordinate
-                            let allLatLngs = layers[0].getLatLngs().flat(Infinity);
-                            if (allLatLngs.length > 0) {
-                                startPoint = allLatLngs[0];
-                                endPoint = allLatLngs[allLatLngs.length - 1];
-                            }
-                        }
-
-                        datiGPX[file.name] = {
-                            distanza: (traccia.get_distance() / 1000).toFixed(2),
-                            start: startPoint,
-                            end: endPoint,
-                            layer: traccia 
-                        };
+                    }).on('loaded', e => {
+                        datiGPX[file.name] = { distanza: (e.target.get_distance() / 1000).toFixed(2), layer: e.target };
                     }).addTo(map);
                 });
-            })
-            .catch(err => {
-                document.getElementById('lista-tappe').innerHTML = 'Errore nel caricamento delle tappe da GitHub.';
-                console.error(err);
             });
 
-        function selezionaTappa(element, filename) {
-            if (!datiGPX[filename] || !datiGPX[filename].layer) {
-                alert("Questa tappa si sta ancora caricando sulla mappa. Attendi un istante e riprova.");
-                return;
-            }
-
-            const index = tappeSelezionate.indexOf(filename);
-            const traccia = datiGPX[filename].layer;
-
-            if (index > -1) {
-                tappeSelezionate.splice(index, 1);
-                element.classList.remove('selezionata');
-                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); 
+        function toggleTappa(div, name) {
+            const idx = tappeSelezionate.indexOf(name);
+            if(idx > -1) {
+                tappeSelezionate.splice(idx, 1);
+                div.classList.remove('selezionata');
+                datiGPX[name].layer.setStyle({color:'#888'});
             } else {
-                tappeSelezionate.push(filename);
-                element.classList.add('selezionata');
-                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); 
-                
-                try { map.fitBounds(traccia.getBounds()); } catch(e) {}
+                tappeSelezionate.push(name);
+                div.classList.add('selezionata');
+                datiGPX[name].layer.setStyle({color:'#007bff', weight:5});
             }
         }
 
-        async function generaPDF() {
-            if(tappeSelezionate.length === 0) {
-                alert("Seleziona almeno una tappa cliccando sulla lista a sinistra!");
-                return;
-            }
+        function trovaInfoBus(current, next) {
+            const c = current.toLowerCase();
+            const n = next.toLowerCase();
+            return arstDb.find(bus => 
+                (bus.from.some(f => c.includes(f)) && bus.to.some(t => n.includes(t))) ||
+                (bus.from.some(f => n.includes(f)) && bus.to.some(t => c.includes(t)))
+            );
+        }
 
-            const btn = document.getElementById('btn-genera');
-            btn.innerText = "Generazione PDF in corso...";
-            btn.disabled = true;
+        function generaPDF() {
+            if(tappeSelezionate.length === 0) return;
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            let y = 20;
 
-            try {
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF();
-                let yPos = 20;
+            doc.setFontSize(18).text("Programma Cammino di Santa Barbara", 10, y);
+            y += 15;
 
-                doc.setFontSize(20);
-                doc.text("Il mio Itinerario", 105, yPos, { align: "center" });
-                yPos += 20;
+            tappeSelezionate.forEach((nome, i) => {
+                const d = datiGPX[nome];
+                doc.setFontSize(12).setFont(undefined, 'bold').text(`Tappa ${i+1}: ${nome.replace('.gpx','')}`, 10, y);
+                y += 7;
+                doc.setFont(undefined, 'normal').text(`Distanza stimata a piedi: ${d.distanza} km`, 10, y);
+                y += 10;
 
-                doc.setFontSize(12);
-                
-                let directionsService;
-                try {
-                    directionsService = new google.maps.DirectionsService();
-                } catch (e) {
-                    console.warn("API di Google Maps non caricata, il PDF non avrà i mezzi pubblici.");
-                }
-
-                for (let i = 0; i < tappeSelezionate.length; i++) {
-                    const tappaCorrente = tappeSelezionate[i];
-                    const datiCorrenti = datiGPX[tappaCorrente];
-
-                    doc.setFont("helvetica", "bold");
-                    doc.text(`Tappa ${i+1}: ${tappaCorrente.replace('.gpx', '')}`, 10, yPos);
-                    yPos += 8;
-                    doc.setFont("helvetica", "normal");
-                    doc.text(`Distanza a piedi: ${datiCorrenti.distanza} km`, 10, yPos);
-                    yPos += 15;
-
-                    // Mezzi Pubblici
-                    if (i < tappeSelezionate.length - 1) {
-                        const tappaSuccessiva = tappeSelezionate[i+1];
-                        const datiSuccessivi = datiGPX[tappaSuccessiva];
-                        
-                        doc.setTextColor(0, 0, 255);
-                        doc.text("-> Spostamento verso la tappa successiva:", 10, yPos);
-                        doc.setTextColor(0, 0, 0);
-                        yPos += 10;
-
-                        if (directionsService && datiCorrenti.end.lat !== 0 && datiSuccessivi.start.lat !== 0) {
-                            const request = {
-                                origin: new google.maps.LatLng(datiCorrenti.end.lat, datiCorrenti.end.lng),
-                                destination: new google.maps.LatLng(datiSuccessivi.start.lat, datiSuccessivi.start.lng),
-                                travelMode: 'TRANSIT'
-                            };
-                            
-                            try {
-                                const response = await directionsService.route(request);
-                                const rotta = response.routes[0].legs[0];
-                                doc.text(`Mezzi Pubblici stimati: ${rotta.duration.text}`, 15, yPos);
-                            } catch (googleError) {
-                                // Se Google blocca la richiesta (es. manca un metodo di pagamento nell'account Cloud) non andrà in crash
-                                doc.text("Google Maps non ha trovato rotte o richiede configurazione Billing.", 15, yPos);
-                                console.error("Errore Google Maps:", googleError);
-                            }
-                        } else {
-                            doc.text("Dati GPS insufficienti per calcolare i mezzi.", 15, yPos);
-                        }
-                        yPos += 15;
-                    }
-
-                    if (yPos > 270) {
-                        doc.addPage();
-                        yPos = 20;
+                if(i < tappeSelezionate.length - 1) {
+                    const bus = trovaInfoBus(nome, tappeSelezionate[i+1]);
+                    if(bus) {
+                        doc.setTextColor(0, 100, 0).setFont(undefined, 'italic');
+                        doc.text(`-> Collegamento ARST Linea ${bus.id}`, 15, y);
+                        y += 6;
+                        doc.setFontSize(9).setTextColor(100);
+                        doc.text(`Consulta orario: https://${repoUser}.github.io/${repoName}/pdf_orari/${bus.file}`, 15, y);
+                        doc.setTextColor(0).setFontSize(12).setFont(undefined, 'normal');
+                        y += 10;
                     }
                 }
+                if(y > 270) { doc.addPage(); y = 20; }
+            });
 
-                // Salva il file
-                doc.save("Itinerario_Trekking.pdf");
-
-            } catch (erroreCritico) {
-                // Se c'è un errore fatale, te lo mostra a schermo invece di bloccarsi
-                alert("Ops! C'è stato un problema durante la creazione del PDF: " + erroreCritico.message);
-                console.error(erroreCritico);
-            } finally {
-                // Rimette SEMPRE a posto il bottone alla fine, sia in caso di successo che di errore
-                btn.innerText = "Genera PDF Itinerario";
-                btn.disabled = false;
-            }
+            doc.save("Itinerario_Santa_Barbara_ARST.pdf");
         }
     </script>
 </body>
