@@ -34,10 +34,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdC0Ny4fC2UKoYCZAQZHTKJQ5WOlPHUJQ"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdC0Ny4fC2UKoYCZAQZHTKJQ5WOlPHUJQ"></script>
 
     <script>
-        // Inizializza la Mappa (centrata in Sardegna)
         const map = L.map('map').setView([39.2238, 8.5204], 9);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
@@ -46,7 +45,6 @@
         let tappeSelezionate = [];
         let datiGPX = {}; 
 
-        // 1. Legge dinamicamente i file dalla tua cartella gpx su GitHub
         const githubApiUrl = 'https://api.github.com/repos/palmasstudio-collab/GPX-tracker/contents/gpx';
 
         fetch(githubApiUrl)
@@ -72,16 +70,15 @@
                     }).on('loaded', function(e) {
                         const traccia = e.target;
                         
-                        // Estraiamo a mano le coordinate di inizio e fine dalla linea
+                        // Estrazione sicura delle coordinate di inizio e fine
                         let startPoint = { lat: 0, lng: 0 };
                         let endPoint = { lat: 0, lng: 0 };
                         const layers = traccia.getLayers();
                         
-                        if (layers.length > 0) {
+                        if (layers.length > 0 && layers[0].getLatLngs) {
                             let latlngs = layers[0].getLatLngs();
-                            // Gestisce eventuali percorsi complessi
                             if (latlngs.length > 0 && Array.isArray(latlngs[0])) {
-                                latlngs = latlngs[0];
+                                latlngs = latlngs[0]; // Gestisce array nidificati
                             }
                             if (latlngs.length > 0) {
                                 startPoint = latlngs[0];
@@ -103,32 +100,29 @@
                 console.error(err);
             });
 
-       function selezionaTappa(element, filename) {
-            // Controllo di sicurezza: verifica se la traccia è stata disegnata sulla mappa
+        function selezionaTappa(element, filename) {
+            // Controllo se i dati GPX sono stati estratti correttamente
             if (!datiGPX[filename] || !datiGPX[filename].layer) {
-                alert("Questa tappa si sta ancora caricando sulla mappa. Attendi qualche secondo e riprova!");
-                return; // Ferma il codice qui per non creare errori
+                alert("Questa tappa si sta ancora caricando sulla mappa. Attendi un istante e riprova.");
+                return;
             }
 
             const index = tappeSelezionate.indexOf(filename);
             const traccia = datiGPX[filename].layer;
 
             if (index > -1) {
-                // Se era già selezionata, la deseleziona
                 tappeSelezionate.splice(index, 1);
                 element.classList.remove('selezionata');
-                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); // Torna grigia
+                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); 
             } else {
-                // Se non era selezionata, la seleziona
                 tappeSelezionate.push(filename);
                 element.classList.add('selezionata');
-                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); // Diventa blu
+                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); 
                 
-                // Centra la mappa sulla traccia (con un controllo per evitare blocchi)
                 try {
                     map.fitBounds(traccia.getBounds()); 
                 } catch(e) {
-                    console.log("Impossibile zoomare sulla traccia", e);
+                    console.log("Zoom ignorato", e);
                 }
             }
         }
@@ -153,12 +147,11 @@
 
             doc.setFontSize(12);
             
-            // Inizializza il servizio di Google Maps per le indicazioni
             let directionsService;
             try {
                 directionsService = new google.maps.DirectionsService();
             } catch (e) {
-                console.warn("API di Google Maps non caricata correttamente. Verifica la chiave.");
+                console.warn("API di Google Maps non caricata.");
             }
 
             for (let i = 0; i < tappeSelezionate.length; i++) {
@@ -172,7 +165,7 @@
                 doc.text(`Distanza a piedi: ${datiCorrenti.distanza} km`, 10, yPos);
                 yPos += 15;
 
-                // Controllo Mezzi Pubblici
+                // Controllo Mezzi Pubblici se non è l'ultima tappa
                 if (i < tappeSelezionate.length - 1) {
                     const tappaSuccessiva = tappeSelezionate[i+1];
                     const datiSuccessivi = datiGPX[tappaSuccessiva];
@@ -182,7 +175,7 @@
                     doc.setTextColor(0, 0, 0);
                     yPos += 10;
 
-                    if (directionsService) {
+                    if (directionsService && datiCorrenti.end && datiSuccessivi.start) {
                         const request = {
                             origin: new google.maps.LatLng(datiCorrenti.end.lat, datiCorrenti.end.lng),
                             destination: new google.maps.LatLng(datiSuccessivi.start.lat, datiSuccessivi.start.lng),
@@ -194,11 +187,10 @@
                             const rotta = response.routes[0].legs[0];
                             doc.text(`Mezzi Pubblici stimati: ${rotta.duration.text}`, 15, yPos);
                         } catch (e) {
-                            doc.text("Nessun mezzo pubblico diretto trovato o API non attiva.", 15, yPos);
-                            console.log("Dettaglio errore Maps:", e);
+                            doc.text("Nessun mezzo pubblico diretto trovato.", 15, yPos);
                         }
                     } else {
-                        doc.text("Impossibile calcolare i mezzi (API Google mancante).", 15, yPos);
+                        doc.text("Impossibile calcolare i mezzi.", 15, yPos);
                     }
                     yPos += 15;
                 }
