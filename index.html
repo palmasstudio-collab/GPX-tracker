@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Generatore Itinerari GPX</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; margin: 0; height: 100vh; color: #333; }
+        #map { flex: 3; height: 100%; }
+        #sidebar { flex: 1; padding: 20px; background: #f8f9fa; overflow-y: auto; box-shadow: -2px 0 5px rgba(0,0,0,0.1); z-index: 1000; display: flex; flex-direction: column; }
+        h2 { margin-top: 0; font-size: 1.5rem; }
+        p { font-size: 0.9rem; color: #666; }
+        #lista-tappe { flex-grow: 1; overflow-y: auto; margin-bottom: 20px; }
+        .tappa-item { padding: 12px; border: 1px solid #ddd; margin-bottom: 8px; cursor: pointer; background: white; border-radius: 6px; font-size: 0.9rem; transition: all 0.2s;}
+        .tappa-item:hover { border-color: #007bff; }
+        .selezionata { background-color: #e8f4f8; border-color: #007bff; border-left: 5px solid #007bff; font-weight: bold;}
+        button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 8px; transition: background 0.3s;}
+        button:hover { background: #218838; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+    
+    <div id="sidebar">
+        <h2>Il mio Cammino</h2>
+        <p>Seleziona le tappe nell'ordine in cui vuoi percorrerle. L'app cercherà i mezzi pubblici per colmare i vuoti.</p>
+        <div id="lista-tappe">In caricamento...</div>
+        <button id="btn-genera" onclick="generaPDF()">Genera PDF Itinerario</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <script>
+        // Inizializza la Mappa (centrata in Sardegna)
+        const map = L.map('map').setView([39.2238, 8.5204], 9);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let tappeSelezionate = [];
+        let datiGPX = {}; // Salveremo qui le coordinate di inizio/fine per ogni traccia
+
+        // 1. Legge dinamicamente i file dalla tua cartella gpx su GitHub
+        // SOSTITUISCI CON IL TUO UTENTE E REPO GITHUB!
+        const githubApiUrl = 'https://api.github.com/repos/TUO_UTENTE/TUO_REPO/contents/gpx';
+
+        fetch(githubApiUrl)
+            .then(response => response.json())
+            .then(files => {
+                const listaDiv = document.getElementById('lista-tappe');
+                listaDiv.innerHTML = ''; // Pulisce il messaggio di caricamento
+                
+                // Filtra solo i file .gpx
+                const gpxFiles = files.filter(f => f.name.endsWith('.gpx'));
+
+                gpxFiles.forEach(file => {
+                    let div = document.createElement('div');
+                    div.className = 'tappa-item';
+                    div.innerText = file.name.replace('.gpx', '').replace(/-/g, ' '); // Pulisce il nome per la lettura
+                    
+                    div.onclick = function() { selezionaTappa(div, file.name); };
+                    listaDiv.appendChild(div);
+
+                    // Disegna la traccia sulla mappa in grigio chiaro
+                    new L.GPX(file.download_url, {
+                        async: true,
+                        marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
+                        polyline_options: { color: '#888', opacity: 0.6, weight: 3 }
+                    }).on('loaded', function(e) {
+                        // Salva i dati per usarli dopo nel PDF e in Google Maps
+                        datiGPX[file.name] = {
+                            distanza: (e.target.get_distance() / 1000).toFixed(2),
+                            start: e.target.get_start_point(),
+                            end: e.target.get_end_point(),
+                            layer: e.target // Salviamo il livello per cambiargli colore al clic
+                        };
+                    }).addTo(map);
+                });
+            })
+            .catch(err => {
+                document.getElementById('lista-tappe').innerHTML = 'Errore nel caricamento delle tappe. Verifica il link GitHub nel codice.';
+                console.error(err);
+            });
+
+        function selezionaTappa(element, filename) {
+            const index = tappeSelezionate.indexOf(filename);
+            const traccia = datiGPX[filename].layer;
+
+            if (index > -1) {
+                // Deseleziona
+                tappeSelezionate.splice(index, 1);
+                element.classList.remove('selezionata');
+                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); // Torna grigia
+            } else {
+                // Seleziona
+                tappeSelezionate.push(filename);
+                element.classList.add('selezionata');
+                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); // Diventa blu e spessa
+                map.fitBounds(traccia.getBounds()); // Zooma sulla tappa
+            }
+        }
+
+        async function generaPDF() {
+            if(tappeSelezionate.length === 0) {
+                alert("Seleziona almeno una tappa cliccando sulla lista a sinistra!");
+                return;
+            }
+
+            const btn = document.getElementById('btn-genera');
+            btn.innerText = "Generazione PDF in corso...";
+            btn.disabled = true;
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            let yPos = 20;
+
+            doc.setFontSize(20);
+            doc.text("Il mio Itinerario", 105, yPos, { align: "center" });
+            yPos += 20;
+
+            doc.setFontSize(12);
+            
+            // Per la ricerca Google (da scommentare quando metti la chiave)
+            // const directionsService = new google.maps.DirectionsService();
+
+            for (let i = 0; i < tappeSelezionate.length; i++) {
+                const tappaCorrente = tappeSelezionate[i];
+                const datiCorrenti = datiGPX[tappaCorrente];
+
+                doc.setFont("helvetica", "bold");
+                doc.text(`Tappa ${i+1}: ${tappaCorrente.replace('.gpx', '')}`, 10, yPos);
+                yPos += 8;
+                doc.setFont("helvetica", "normal");
+                doc.text(`Distanza a piedi: ${datiCorrenti.distanza} km`, 10, yPos);
+                yPos += 15;
+
+                // Controllo Mezzi Pubblici: se non è l'ultima tappa, calcola la distanza con la successiva
+                if (i < tappeSelezionate.length - 1) {
+                    const tappaSuccessiva = tappeSelezionate[i+1];
+                    const datiSuccessivi = datiGPX[tappaSuccessiva];
+                    
+                    doc.setTextColor(0, 0, 255);
+                    doc.text("-> Spostamento per la tappa successiva: (Richiede Google API Key attiva)", 10, yPos);
+                    doc.setTextColor(0, 0, 0);
+                    yPos += 15;
+
+                    /* LOGICA GOOGLE MAPS DA ATTIVARE
+                    const request = {
+                        origin: new google.maps.LatLng(datiCorrenti.end.lat, datiCorrenti.end.lng),
+                        destination: new google.maps.LatLng(datiSuccessivi.start.lat, datiSuccessivi.start.lng),
+                        travelMode: 'TRANSIT'
+                    };
+                    
+                    try {
+                        const response = await directionsService.route(request);
+                        const rotta = response.routes[0].legs[0];
+                        doc.text(`Mezzi Pubblici stimati: ${rotta.duration.text}`, 15, yPos);
+                        yPos += 10;
+                    } catch (e) {
+                        console.log("Nessun mezzo trovato o API non attiva");
+                    }
+                    */
+                }
+
+                // Aggiunge una nuova pagina se finiamo lo spazio
+                if (yPos > 270) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+            }
+
+            doc.save("Itinerario_Trekking.pdf");
+            btn.innerText = "Genera PDF Itinerario";
+            btn.disabled = false;
+        }
+    </script>
+</body>
+</html>
