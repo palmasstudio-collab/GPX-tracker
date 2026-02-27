@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>Santa Barbara Planner - Versione Finale</title>
+    <title>Santa Barbara Planner - Logistica Completa</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; margin: 0; height: 100vh; background: #f0f2f5; }
@@ -17,8 +17,7 @@
         .tappa-item:hover { border-color: #1a73e8; background: #f1f8ff; }
         .selezionata { background-color: #e8f0fe; border-color: #1a73e8; border-left: 5px solid #1a73e8; font-weight: bold; }
         button { width: 100%; padding: 16px; background: #28a745; color: white; border: none; font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 8px; transition: 0.3s; margin-top: 15px; }
-        button:hover { background: #218838; transform: translateY(-1px); }
-        button:active { transform: translateY(0); }
+        button:hover { background: #218838; }
     </style>
 </head>
 <body>
@@ -31,15 +30,12 @@
         <div class="config-section">
             <label for="data-partenza">Data di inizio cammino:</label>
             <input type="date" id="data-partenza">
-            <p style="font-size: 0.75rem; color: #666; margin-top: 8px;">
-                Seleziona il giorno in cui lascerai l'auto al punto di partenza.
-            </p>
         </div>
 
-        <label>Seleziona le tappe nell'ordine:</label>
-        <div id="lista-tappe">Caricamento tracce GPX...</div>
+        <label>Seleziona le tappe (anche non contigue):</label>
+        <div id="lista-tappe">Caricamento tracce...</div>
         
-        <button onclick="generaPDF()">Genera Itinerario e Rientro</button>
+        <button onclick="generaPDF()">Genera Itinerario e Rientro Auto</button>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -47,21 +43,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <script>
-        // Database Orari ARST estratti dai tuoi PDF
+        // Database ARST potenziato basato sui tuoi 10 PDF
         const arstDb = [
             { id: "840", from: ["iglesias"], to: ["masua", "nebida"], orari: ["06:05"], file: "840.pdf" },
             { id: "853", from: ["funtanamare"], to: ["iglesias"], orari: ["12:30", "17:30", "18:21"], file: "853.pdf" },
-            { id: "855", from: ["plage mesu"], to: ["iglesias"], orari: ["13:00", "15:05", "17:30", "18:30", "19:10", "19:20"], file: "855.pdf" },
-            { id: "856", from: ["plage mesu"], to: ["domusnovas"], orari: ["13:00", "17:30", "18:20", "19:20"], file: "856.pdf" },
-            { id: "847", from: ["gonnesa", "portoscuso"], to: ["iglesias"], orari: ["06:33", "15:05"], file: "847.pdf" },
-            { id: "8005", from: ["carbonia"], to: ["iglesias"], orari: ["05:30", "06:25", "07:00", "08:00", "09:00"], file: "8005.pdf" },
+            { id: "855", from: ["plage mesu"], to: ["iglesias"], orari: ["13:00", "15:05", "17:30", "18:30"], file: "855.pdf" },
+            { id: "856", from: ["plage mesu"], to: ["domusnovas"], orari: ["13:00", "17:30", "19:20"], file: "856.pdf" },
+            { id: "847", from: ["portoscuso", "gonnesa"], to: ["iglesias"], orari: ["06:33", "15:05"], file: "847.pdf" },
+            { id: "8005", from: ["carbonia"], to: ["iglesias"], orari: ["05:30", "06:25", "07:00", "08:00"], file: "8005.pdf" },
             { id: "841", from: ["iglesias"], to: ["guspini", "villacidro"], orari: ["13:40"], file: "841.pdf" }
         ];
 
         const map = L.map('map').setView([39.2238, 8.5204], 10);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         document.getElementById('data-partenza').valueAsDate = new Date();
 
@@ -83,12 +77,13 @@
 
                     new L.GPX(file.download_url, {
                         async: true,
-                        markers: { startIcon: null, endIcon: null, wpIcon: null }, // RIMOZIONE MARKER BOX
+                        markers: { startIcon: null, endIcon: null, wpIcon: null },
                         polyline_options: { color: '#888', opacity: 0.6, weight: 3 }
                     }).on('loaded', e => {
                         datiGPX[file.name] = { 
                             distanza: (e.target.get_distance() / 1000).toFixed(2), 
-                            layer: e.target 
+                            layer: e.target,
+                            nome: file.name
                         };
                     }).addTo(map);
                 });
@@ -107,76 +102,95 @@
             }
         }
 
+        // Funzione per estrarre la località dal nome del file (es: "01-Iglesias-Nebida.gpx")
+        function getLocalita(filename, tipo) {
+            const parti = filename.replace('.gpx', '').split('-');
+            return tipo === 'inizio' ? parti[1].toLowerCase() : parti[parti.length - 1].toLowerCase();
+        }
+
+        function cercaBus(da, a) {
+            return arstDb.find(b => 
+                (b.from.some(f => da.includes(f)) && b.to.some(t => a.includes(t))) ||
+                (b.from.some(f => a.includes(f)) && b.to.some(t => da.includes(t)))
+            );
+        }
+
         function generaPDF() {
             const dataInizio = document.getElementById('data-partenza').value;
-            if(!dataInizio) return alert("Inserisci la data di partenza!");
-            if(tappeSelezionate.length === 0) return alert("Seleziona almeno una tappa!");
+            if(!dataInizio || tappeSelezionate.length === 0) return alert("Inserisci data e seleziona tappe!");
             
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             let y = 20;
-
             let dataCorrente = new Date(dataInizio);
-            const fmt = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+            const fmt = { weekday: 'long', day: 'numeric', month: 'long' };
 
-            doc.setFontSize(20).setFont(undefined, 'bold').text("ITINERARIO CAMMINO DI SANTA BARBARA", 10, y);
+            doc.setFontSize(18).setFont(undefined, 'bold').text("PROGRAMMA DI VIAGGIO PERSONALIZZATO", 10, y);
             y += 15;
 
-            tappeSelezionate.forEach((nome, i) => {
-                const d = datiGPX[nome];
-                const dataStr = dataCorrente.toLocaleDateString('it-IT', fmt);
+            for (let i = 0; i < tappeSelezionate.length; i++) {
+                const attuale = tappeSelezionate[i];
+                const d = datiGPX[attuale];
                 
                 doc.setFontSize(11).setFont(undefined, 'bold').setTextColor(26, 115, 232);
-                doc.text(dataStr.toUpperCase(), 10, y);
+                doc.text(dataCorrente.toLocaleDateString('it-IT', fmt).toUpperCase(), 10, y);
                 y += 7;
                 
                 doc.setFontSize(12).setFont(undefined, 'normal').setTextColor(0);
-                doc.text(`Tappa: ${nome.replace('.gpx','')}`, 10, y);
+                doc.text(`PIEDI: ${attuale.replace('.gpx','')}`, 10, y);
                 y += 6;
-                doc.setFontSize(10).setTextColor(100).text(`Percorso previsto: ${d.distanza} km`, 10, y);
-                y += 15;
+                doc.setFontSize(10).setTextColor(100).text(`Distanza: ${d.distanza} km`, 10, y);
+                y += 12;
+
+                // --- LOGICA TAPPE NON CONTIGUE ---
+                if (i < tappeSelezionate.length - 1) {
+                    const fineAttuale = getLocalita(attuale, 'fine');
+                    const inizioProssima = getLocalita(tappeSelezionate[i+1], 'inizio');
+
+                    if (fineAttuale !== inizioProssima) {
+                        const busIntermedio = cercaBus(fineAttuale, inizioProssima);
+                        if (busIntermedio) {
+                            doc.setFillColor(248, 249, 250).rect(10, y-2, 180, 18, 'F');
+                            doc.setFontSize(10).setFont(undefined, 'bold').setTextColor(0, 102, 204);
+                            doc.text(`🚌 SPOSTAMENTO NECESSARIO (BUS ARST Linea ${busIntermedio.id})`, 12, y+5);
+                            doc.setFont(undefined, 'normal').setFontSize(9);
+                            doc.text(`Da: ${fineAttuale.toUpperCase()} a: ${inizioProssima.toUpperCase()}`, 12, y+10);
+                            y += 22;
+                        }
+                    }
+                }
 
                 dataCorrente.setDate(dataCorrente.getDate() + 1);
                 if(y > 270) { doc.addPage(); y = 20; }
-            });
+            }
 
-            // SEZIONE RIENTRO AUTO
+            // --- LOGICA RIENTRO AUTO ---
             y += 5;
             doc.setDrawColor(220, 53, 69).setLineWidth(1).line(10, y, 200, y);
             y += 12;
             doc.setFontSize(14).setFont(undefined, 'bold').setTextColor(220, 53, 69);
-            doc.text("LOGISTICA RIENTRO: RECUPERO AUTO", 10, y);
+            doc.text("FINE VIAGGIO: RECUPERO AUTO", 10, y);
             y += 10;
 
-            const localitaPartenza = tappeSelezionate[0].toLowerCase();
-            const localitaArrivo = tappeSelezionate[tappeSelezionate.length - 1].toLowerCase();
+            const puntoParcheggio = getLocalita(tappeSelezionate[0], 'inizio');
+            const puntoArrivoFinale = getLocalita(tappeSelezionate[tappeSelezionate.length - 1], 'fine');
             
             doc.setFontSize(10).setTextColor(0).setFont(undefined, 'normal');
-            doc.text(`Hai lasciato l'auto a: ${tappeSelezionate[0].split('-')[0]}`, 10, y);
-            y += 6;
-            
-            const dataRitorno = new Date(dataCorrente);
-            dataRitorno.setDate(dataRitorno.getDate() - 1);
-            doc.text(`Giorno di rientro previsto: ${dataRitorno.toLocaleDateString('it-IT', fmt)}`, 10, y);
-            y += 12;
+            doc.text(`La tua auto ti aspetta a: ${puntoParcheggio.toUpperCase()}`, 10, y);
+            y += 7;
 
-            // Cerca bus nel database ARST locale
-            const bus = arstDb.find(b => 
-                (b.from.some(f => localitaArrivo.includes(f)) && b.to.some(t => localitaPartenza.includes(t))) ||
-                (b.from.some(f => localitaPartenza.includes(f)) && b.to.some(t => localitaArrivo.includes(t)))
-            );
-
-            if(bus) {
-                doc.setFont(undefined, 'bold').text(`🚌 Suggerimento ARST: Linea ${bus.id}`, 10, y);
-                y += 7;
-                doc.setFont(undefined, 'normal').text(`Orari partenze utili: ${bus.orari.join(" | ")}`, 10, y);
-                y += 7;
-                doc.setFontSize(8).setTextColor(100).text(`Link Orario PDF: https://${repoUser}.github.io/${repoName}/pdf_orari/${bus.file}`, 10, y);
+            const busRitorno = cercaBus(puntoArrivoFinale, puntoParcheggio);
+            if(busRitorno) {
+                doc.setFont(undefined, 'bold').text(`🚌 Rientro con Linea ${busRitorno.id} ARST`, 10, y);
+                y += 6;
+                doc.setFont(undefined, 'normal').text(`Partenze utili: ${busRitorno.orari.join(" | ")}`, 10, y);
+                y += 6;
+                doc.setFontSize(8).setTextColor(100).text(`Vedi orario completo PDF: https://${repoUser}.github.io/${repoName}/pdf_orari/${busRitorno.file}`, 10, y);
             } else {
-                doc.setFont(undefined, 'italic').text("Nessun bus diretto salvato per questa tratta. Consulta gli orari presso Iglesias Stazione FS.", 10, y);
+                doc.setFont(undefined, 'italic').text("Nessun bus diretto per il parcheggio. Fai scalo a Iglesias Stazione FS.", 10, y);
             }
 
-            doc.save(`Itinerario_CMSB_${dataInizio}.pdf`);
+            doc.save(`Piano_Cammino_Completo.pdf`);
         }
     </script>
 </body>
