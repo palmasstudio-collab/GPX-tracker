@@ -1,0 +1,8 @@
+{
+  "titolo_viaggio": "Il mio Itinerario",
+  "data_inizio": "2026-05-20",
+  "tappe": [
+    "01_tappa.gpx",
+    "02_tappa.gpx"
+  ]
+}
