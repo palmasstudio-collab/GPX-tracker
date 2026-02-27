@@ -84,19 +84,33 @@
                 console.error(err);
             });
 
-        function selezionaTappa(element, filename) {
+       function selezionaTappa(element, filename) {
+            // Controllo di sicurezza: verifica se la traccia è stata disegnata sulla mappa
+            if (!datiGPX[filename] || !datiGPX[filename].layer) {
+                alert("Questa tappa si sta ancora caricando sulla mappa. Attendi qualche secondo e riprova!");
+                return; // Ferma il codice qui per non creare errori
+            }
+
             const index = tappeSelezionate.indexOf(filename);
             const traccia = datiGPX[filename].layer;
 
             if (index > -1) {
+                // Se era già selezionata, la deseleziona
                 tappeSelezionate.splice(index, 1);
                 element.classList.remove('selezionata');
-                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); 
+                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); // Torna grigia
             } else {
+                // Se non era selezionata, la seleziona
                 tappeSelezionate.push(filename);
                 element.classList.add('selezionata');
-                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); 
-                map.fitBounds(traccia.getBounds()); 
+                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); // Diventa blu
+                
+                // Centra la mappa sulla traccia (con un controllo per evitare blocchi)
+                try {
+                    map.fitBounds(traccia.getBounds()); 
+                } catch(e) {
+                    console.log("Impossibile zoomare sulla traccia", e);
+                }
             }
         }
 
