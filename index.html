@@ -70,11 +70,30 @@
                         marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
                         polyline_options: { color: '#888', opacity: 0.6, weight: 3 }
                     }).on('loaded', function(e) {
+                        const traccia = e.target;
+                        
+                        // Estraiamo a mano le coordinate di inizio e fine dalla linea
+                        let startPoint = { lat: 0, lng: 0 };
+                        let endPoint = { lat: 0, lng: 0 };
+                        const layers = traccia.getLayers();
+                        
+                        if (layers.length > 0) {
+                            let latlngs = layers[0].getLatLngs();
+                            // Gestisce eventuali percorsi complessi
+                            if (latlngs.length > 0 && Array.isArray(latlngs[0])) {
+                                latlngs = latlngs[0];
+                            }
+                            if (latlngs.length > 0) {
+                                startPoint = latlngs[0];
+                                endPoint = latlngs[latlngs.length - 1];
+                            }
+                        }
+
                         datiGPX[file.name] = {
-                            distanza: (e.target.get_distance() / 1000).toFixed(2),
-                            start: e.target.get_start_point(),
-                            end: e.target.get_end_point(),
-                            layer: e.target 
+                            distanza: (traccia.get_distance() / 1000).toFixed(2),
+                            start: startPoint,
+                            end: endPoint,
+                            layer: traccia 
                         };
                     }).addTo(map);
                 });
