@@ -69,14 +69,48 @@
             }
         }
 
-        function generaPDF() {
+      function generaPDF() {
             if(tappeSelezionate.length === 0) {
                 alert("Seleziona almeno una tappa!");
                 return;
             }
-            alert("Richiesta inviata per: \n" + tappeSelezionate.join('\n'));
-            // Qui andrà la chiamata POST finale al server
+            
+            // Cambia l'aspetto del bottone mentre l'app pensa
+            const btn = document.querySelector('button');
+            const originalText = btn.innerText;
+            btn.innerText = "Generazione in corso (può richiedere qualche secondo)...";
+            btn.disabled = true;
+
+            fetch('/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ tappe: tappeSelezionate }),
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("Errore dal server");
+                // Gestisce il file in arrivo come Blob (dati binari)
+                return response.blob(); 
+            })
+            .then(blob => {
+                // Crea un link nascosto e simula il clic per forzare il download
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'Itinerario_Viaggio.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            })
+            .catch(error => {
+                alert("Si è verificato un errore durante la generazione.");
+                console.error(error);
+            })
+            .finally(() => {
+                // Ripristina il bottone
+                btn.innerText = originalText;
+                btn.disabled = false;
+            });
         }
-    </script>
-</body>
-</html>
