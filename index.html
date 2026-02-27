@@ -34,6 +34,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDdC0Ny4fC2UKoYCZAQZHTKJQ5WOlPHUJQ"></script>
+
     <script>
         // Inizializza la Mappa (centrata in Sardegna)
         const map = L.map('map').setView([39.2238, 8.5204], 9);
@@ -42,41 +44,37 @@
         }).addTo(map);
 
         let tappeSelezionate = [];
-        let datiGPX = {}; // Salveremo qui le coordinate di inizio/fine per ogni traccia
+        let datiGPX = {}; 
 
         // 1. Legge dinamicamente i file dalla tua cartella gpx su GitHub
-        // SOSTITUISCI CON IL TUO UTENTE E REPO GITHUB!
-        const githubApiUrl = 'https://api.github.com/repos/TUO_UTENTE/TUO_REPO/contents/gpx';
+        const githubApiUrl = 'https://api.github.com/repos/palmasstudio-collab/GPX-tracker/contents/gpx';
 
         fetch(githubApiUrl)
             .then(response => response.json())
             .then(files => {
                 const listaDiv = document.getElementById('lista-tappe');
-                listaDiv.innerHTML = ''; // Pulisce il messaggio di caricamento
+                listaDiv.innerHTML = ''; 
                 
-                // Filtra solo i file .gpx
                 const gpxFiles = files.filter(f => f.name.endsWith('.gpx'));
 
                 gpxFiles.forEach(file => {
                     let div = document.createElement('div');
                     div.className = 'tappa-item';
-                    div.innerText = file.name.replace('.gpx', '').replace(/-/g, ' '); // Pulisce il nome per la lettura
+                    div.innerText = file.name.replace('.gpx', '').replace(/-/g, ' '); 
                     
                     div.onclick = function() { selezionaTappa(div, file.name); };
                     listaDiv.appendChild(div);
 
-                    // Disegna la traccia sulla mappa in grigio chiaro
                     new L.GPX(file.download_url, {
                         async: true,
                         marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
                         polyline_options: { color: '#888', opacity: 0.6, weight: 3 }
                     }).on('loaded', function(e) {
-                        // Salva i dati per usarli dopo nel PDF e in Google Maps
                         datiGPX[file.name] = {
                             distanza: (e.target.get_distance() / 1000).toFixed(2),
                             start: e.target.get_start_point(),
                             end: e.target.get_end_point(),
-                            layer: e.target // Salviamo il livello per cambiargli colore al clic
+                            layer: e.target 
                         };
                     }).addTo(map);
                 });
@@ -91,16 +89,14 @@
             const traccia = datiGPX[filename].layer;
 
             if (index > -1) {
-                // Deseleziona
                 tappeSelezionate.splice(index, 1);
                 element.classList.remove('selezionata');
-                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); // Torna grigia
+                traccia.setStyle({ color: '#888', weight: 3, opacity: 0.6 }); 
             } else {
-                // Seleziona
                 tappeSelezionate.push(filename);
                 element.classList.add('selezionata');
-                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); // Diventa blu e spessa
-                map.fitBounds(traccia.getBounds()); // Zooma sulla tappa
+                traccia.setStyle({ color: '#007bff', weight: 5, opacity: 1 }); 
+                map.fitBounds(traccia.getBounds()); 
             }
         }
 
@@ -124,8 +120,13 @@
 
             doc.setFontSize(12);
             
-            // Per la ricerca Google (da scommentare quando metti la chiave)
-            // const directionsService = new google.maps.DirectionsService();
+            // Inizializza il servizio di Google Maps per le indicazioni
+            let directionsService;
+            try {
+                directionsService = new google.maps.DirectionsService();
+            } catch (e) {
+                console.warn("API di Google Maps non caricata correttamente. Verifica la chiave.");
+            }
 
             for (let i = 0; i < tappeSelezionate.length; i++) {
                 const tappaCorrente = tappeSelezionate[i];
@@ -138,35 +139,37 @@
                 doc.text(`Distanza a piedi: ${datiCorrenti.distanza} km`, 10, yPos);
                 yPos += 15;
 
-                // Controllo Mezzi Pubblici: se non è l'ultima tappa, calcola la distanza con la successiva
+                // Controllo Mezzi Pubblici
                 if (i < tappeSelezionate.length - 1) {
                     const tappaSuccessiva = tappeSelezionate[i+1];
                     const datiSuccessivi = datiGPX[tappaSuccessiva];
                     
                     doc.setTextColor(0, 0, 255);
-                    doc.text("-> Spostamento per la tappa successiva: (Richiede Google API Key attiva)", 10, yPos);
+                    doc.text("-> Spostamento per la tappa successiva:", 10, yPos);
                     doc.setTextColor(0, 0, 0);
-                    yPos += 15;
+                    yPos += 10;
 
-                    /* LOGICA GOOGLE MAPS DA ATTIVARE
-                    const request = {
-                        origin: new google.maps.LatLng(datiCorrenti.end.lat, datiCorrenti.end.lng),
-                        destination: new google.maps.LatLng(datiSuccessivi.start.lat, datiSuccessivi.start.lng),
-                        travelMode: 'TRANSIT'
-                    };
-                    
-                    try {
-                        const response = await directionsService.route(request);
-                        const rotta = response.routes[0].legs[0];
-                        doc.text(`Mezzi Pubblici stimati: ${rotta.duration.text}`, 15, yPos);
-                        yPos += 10;
-                    } catch (e) {
-                        console.log("Nessun mezzo trovato o API non attiva");
+                    if (directionsService) {
+                        const request = {
+                            origin: new google.maps.LatLng(datiCorrenti.end.lat, datiCorrenti.end.lng),
+                            destination: new google.maps.LatLng(datiSuccessivi.start.lat, datiSuccessivi.start.lng),
+                            travelMode: 'TRANSIT'
+                        };
+                        
+                        try {
+                            const response = await directionsService.route(request);
+                            const rotta = response.routes[0].legs[0];
+                            doc.text(`Mezzi Pubblici stimati: ${rotta.duration.text}`, 15, yPos);
+                        } catch (e) {
+                            doc.text("Nessun mezzo pubblico diretto trovato o API non attiva.", 15, yPos);
+                            console.log("Dettaglio errore Maps:", e);
+                        }
+                    } else {
+                        doc.text("Impossibile calcolare i mezzi (API Google mancante).", 15, yPos);
                     }
-                    */
+                    yPos += 15;
                 }
 
-                // Aggiunge una nuova pagina se finiamo lo spazio
                 if (yPos > 270) {
                     doc.addPage();
                     yPos = 20;
