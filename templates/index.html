@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Crea Itinerario GPX</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; margin: 0; height: 100vh; }
+        #map { flex: 3; height: 100%; }
+        #sidebar { flex: 1; padding: 20px; background: #f8f9fa; overflow-y: auto; box-shadow: -2px 0 5px rgba(0,0,0,0.1); z-index: 1000; }
+        .tappa-item { padding: 10px; border: 1px solid #ddd; margin-bottom: 5px; cursor: pointer; background: white; border-radius: 4px;}
+        .selezionata { background-color: #d4edda; border-color: #28a745; font-weight: bold;}
+        button { width: 100%; padding: 15px; background: #007bff; color: white; border: none; font-size: 16px; cursor: pointer; border-radius: 5px; margin-top: 20px;}
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+    
+    <div id="sidebar">
+        <h2>Le tue tappe</h2>
+        <p>Clicca sui nomi per selezionare/deselezionare l'ordine del tuo cammino.</p>
+        <div id="lista-tappe"></div>
+        <button onclick="generaPDF()">Genera PDF Itinerario</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
+    <script>
+        // Inizializza la mappa centrata sulla Sardegna
+        var map = L.map('map').setView([39.2238, 8.5204], 9);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let tappeSelezionate = [];
+
+        // Carica la lista dei file dal server
+        fetch('/api/gpx-files')
+            .then(response => response.json())
+            .then(files => {
+                const listaDiv = document.getElementById('lista-tappe');
+                files.forEach(file => {
+                    // Crea l'elemento nella barra laterale
+                    let div = document.createElement('div');
+                    div.className = 'tappa-item';
+                    div.innerText = file;
+                    div.onclick = function() { selezionaTappa(div, file); };
+                    listaDiv.appendChild(div);
+
+                    // Disegna il GPX sulla mappa
+                    new L.GPX('/gpx/' + file, {
+                        async: true,
+                        marker_options: { startIconUrl: '', endIconUrl: '', shadowUrl: '' },
+                        polyline_options: { color: 'blue', opacity: 0.5, weight: 3 }
+                    }).on('loaded', function(e) {
+                        map.fitBounds(e.target.getBounds());
+                    }).addTo(map);
+                });
+            });
+
+        function selezionaTappa(element, file) {
+            if (tappeSelezionate.includes(file)) {
+                tappeSelezionate = tappeSelezionate.filter(t => t !== file);
+                element.classList.remove('selezionata');
+            } else {
+                tappeSelezionate.push(file);
+                element.classList.add('selezionata');
+            }
+        }
+
+        function generaPDF() {
+            if(tappeSelezionate.length === 0) {
+                alert("Seleziona almeno una tappa!");
+                return;
+            }
+            alert("Richiesta inviata per: \n" + tappeSelezionate.join('\n'));
+            // Qui andrà la chiamata POST finale al server
+        }
+    </script>
+</body>
+</html>
